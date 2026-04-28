@@ -1,0 +1,373 @@
+{
+  "name": "Public Demo - Secure CRM Orders Payments Handoff",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Форма заявки",
+        "formDescription": "Оставьте ваши контакты и описание задачи",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "name",
+              "placeholder": "Введите ваше имя",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "email",
+              "fieldType": "email",
+              "placeholder": "Введите ваш email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "phone",
+              "placeholder": "Введите ваш телефон",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "request",
+              "fieldType": "textarea",
+              "placeholder": "Опишите, какая услуга вам нужна",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        -1760,
+        -528
+      ],
+      "id": "18ee058c-b946-45ec-8b07-645b916a3e2d",
+      "name": "On form submission",
+      "webhookId": "b718a639-aa3b-47ae-9cad-25182ea0f057"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.proxyapi.ru/openai/v1/responses",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-4.1-mini"
+            },
+            {
+              "name": "input",
+              "value": "={{ \"Ты — профессиональный маркетолог, который оценивает сложность запроса клиента при первичной заявке. Оцени примерную стоимость проекта в российских рублях одним числом. Сформируй короткое коммерческое предложение. Верни строго JSON без markdown в формате {\\\"price\\\":150000,\\\"offer\\\":\\\"Короткое коммерческое предложение\\\"}. Заявка клиента: \" + $json.request_text }}\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1744,
+        -304
+      ],
+      "id": "d3eec679-76e0-41f4-81c6-267baf326d11",
+      "name": "AI Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $input.first().json;\n\nconst text = src.output?.[0]?.content?.[0]?.text;\n\nif (!text) {\n  throw new Error('AI response text not found');\n}\n\nconst parsed = JSON.parse(text);\n\nreturn [\n  {\n    json: {\n      price: Number(parsed.price),\n      offer: String(parsed.offer),\n    },\n  },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1520,
+        -304
+      ],
+      "id": "dde18bf2-8c60-41d1-9774-55475523642c",
+      "name": "Parse AI"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.yookassa.ru/v3/payments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Idempotence-Key",
+              "value": "={{ 'order-' + String($('Create Order In Bpium').item.json.id) + '-' + String($now.toMillis()) }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "=json",
+        "specifyBody": "json",
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "jsonBody": "={\n  \"amount\": {\n    \"value\": \"{{ Number($('Parse AI').item.json.price).toFixed(2) }}\",\n    \"currency\": \"RUB\"\n  },\n  \"capture\": true,\n  \"confirmation\": {\n    \"type\": \"redirect\",\n    \"return_url\": \"{{ $env.YOO_KASSA_RETURN_URL || 'https://example.com/payment-return' }}\"\n  },\n  \"description\": \"Оплата заказа Bpium #{{ $('Create Order In Bpium').item.json.id }}\",\n  \"metadata\": {\n    \"order_id\": \"{{ String($('Create Order In Bpium').item.json.id) }}\",\n    \"source\": \"n8n-course-project\",\n    \"system\": \"bpium\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1072,
+        -304
+      ],
+      "id": "90ca1ac3-b526-40e1-aa9a-4bf18bc80d19",
+      "name": "Create YooKassa Payment"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.NPR10_TELEGRAM_CHAT_ID_TEST }}",
+        "text": "=={{\n'Новая заявка создана\\n\\n' +\n'Среда: ' + ($env.NPR10_ENVIRONMENT || 'test') + '\\n' +\n'Заказ Bpium: ' + $('Create Order In Bpium').item.json.id + '\\n' +\n'Платеж YooKassa: ' + $('Create YooKassa Payment').item.json.id + '\\n' +\n'Сумма: ' + $('Parse AI').item.json.price + ' RUB\\n' +\n'Статус: payment_link_created\\n\\n' +\n'Контакты клиента сохранены в CRM. В Telegram не передаются.'\n}}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -624,
+        -304
+      ],
+      "id": "bb29120b-d6a1-4c0f-ae00-3abed2a448ec",
+      "name": "Send Telegram Message",
+      "webhookId": "ab22a649-181a-4711-bc65-4cad00fafc05"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ String($env.BPIUM_BASE_URL_TEST || 'https://your-workspace.bpium.ru').replace(/\\/$/, '') + '/api/v1/catalogs/' + String($env.BPIUM_CATALOG_ID_TEST || '17') + '/records' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{ $env.BPIUM_SESSION_COOKIE_TEST }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"values\": {\n    \"2\": {{ JSON.stringify($('On form submission').item.json.name) }},\n    \"3\": [\n      {\n        \"contact\": {{ JSON.stringify($('On form submission').item.json.email) }},\n        \"comment\": \"\"\n      }\n    ],\n    \"4\": {{ JSON.stringify($('On form submission').item.json.phone) }},\n    \"5\": {{ JSON.stringify($('On form submission').item.json.request) }},\n    \"6\": {{ Number($('Parse AI').item.json.price) }},\n    \"7\": {{ JSON.stringify($('Parse AI').item.json.offer) }},\n    \"8\": [\"1\"]\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1296,
+        -304
+      ],
+      "id": "9da3206f-1810-4ed4-9beb-c47a07565d06",
+      "name": "Create Order In Bpium"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ String($env.BPIUM_BASE_URL_TEST || 'https://your-workspace.bpium.ru').replace(/\\/$/, '') + '/api/v1/catalogs/' + String($env.BPIUM_CATALOG_ID_TEST || '17') + '/records/' + String($('Create Order In Bpium').item.json.id) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{ $env.BPIUM_SESSION_COOKIE_TEST }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"values\": {\n    \"9\": [\n      {\n        \"contact\": {{ JSON.stringify($('Create YooKassa Payment').item.json.confirmation.confirmation_url) }},\n        \"comment\": \"\"\n      }\n    ],\n    \"10\": {{ JSON.stringify($('Create YooKassa Payment').item.json.id) }},\n    \"11\": [\"1\"]\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -848,
+        -304
+      ],
+      "id": "acedab5a-937a-4afa-bc1c-816766a5d06d",
+      "name": "Update Bpium Order Payment Link"
+    },
+    {
+      "parameters": {
+        "url": "={{ String($env.BPIUM_BASE_URL_TEST || 'https://your-workspace.bpium.ru').replace(/\\/$/, '') + '/api/v1/catalogs/' + String($env.BPIUM_CATALOG_ID_TEST || '17') + '/records' }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "={{ String($('Create Order In Bpium').item.json.id) }}"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{ $env.BPIUM_SESSION_COOKIE_TEST }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -400,
+        -304
+      ],
+      "id": "e6b1b96f-e39a-4dd9-9de8-4ea9ab522b3a",
+      "name": "GET Check Bpium Order"
+    },
+    {
+      "parameters": {
+        "jsCode": "const form = $input.first().json;\n\nreturn [{\n  json: {\n    request_id: String(form.submittedAt ?? form.formMode ?? $execution.id ?? Date.now()),\n    environment: 'test',\n    request_text: String(form.request ?? '').trim(),\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1520,
+        -528
+      ],
+      "id": "88f80ec0-20a5-436e-842e-e11cdb951785",
+      "name": "SEC_Minimize_For_AI"
+    }
+  ],
+  "pinData": {
+    "On form submission": [
+      {
+        "json": {
+          "name": "Demo User",
+          "email": "demo+npr11@example.com",
+          "phone": "79990000000",
+          "request": "Нужна оценка проекта по разработке рекламных баннеров для тестовой заявки",
+          "submittedAt": "2026-03-08T14:08:12.303+03:00",
+          "formMode": "test"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "SEC_Minimize_For_AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Request": {
+      "main": [
+        [
+          {
+            "node": "Parse AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI": {
+      "main": [
+        [
+          {
+            "node": "Create Order In Bpium",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Order In Bpium": {
+      "main": [
+        [
+          {
+            "node": "Create YooKassa Payment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create YooKassa Payment": {
+      "main": [
+        [
+          {
+            "node": "Update Bpium Order Payment Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Bpium Order Payment Link": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Message": {
+      "main": [
+        [
+          {
+            "node": "GET Check Bpium Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SEC_Minimize_For_AI": {
+      "main": [
+        [
+          {
+            "node": "AI Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed"
+  },
+  "versionId": "f1ac6afb-4ff0-4d57-b2d6-24f14d6ad145",
+  "meta": {
+    "instanceId": "9e80a743e277d34d5e244c15e94b7681c44a43b75b74c1a4adb71fb6da4158ae"
+  },
+  "id": "public-demo-crm-orders-payments",
+  "tags": []
+}

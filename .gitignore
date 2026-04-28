@@ -1,0 +1,32 @@
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Secrets and private exports
+*secret*
+*secrets*
+*credential*
+*credentials*
+*.key
+*.pem
+
+# n8n local/runtime data
+.n8n/
+n8n_data/
+
+# Archives generated for course submission
+*.zip
+*.7z
+*.rar
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
