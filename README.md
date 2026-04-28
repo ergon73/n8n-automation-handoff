@@ -75,7 +75,3 @@ After import:
 2. Configure required environment variables.
 3. Run the workflow in test mode.
 4. Check the `Executions` tab and verify that CRM, payment, Telegram, and final check nodes complete successfully.
-
-## Documentation Language
-
-The handoff documents are written in Russian because the original course homework and transfer package are in Russian.
